@@ -2,8 +2,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-EXTRA_JS_MODULES.zen += [
-  "ZenSessionManager.sys.mjs",
-  "ZenSidebarProfileSync.sys.mjs",
-  "ZenWindowSync.sys.mjs",
-]
+[DEFAULT]
+prefs = ["zen.workspaces.separate-essentials=false"]
+
+["browser_sidebar_profile_sync.js"]

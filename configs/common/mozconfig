@@ -4,12 +4,14 @@
 
 # Browser branding
 ac_add_options --with-app-name=${binName}
-ac_add_options --with-app-basename=Zen
+# Keep the custom app basename limited to packaging/runtime naming so ZZen is
+# easy to recognize while the browser otherwise stays close to stock Zen.
+ac_add_options --with-app-basename=ZZen
 
 # Localization (Must be an absolute path)
 ac_add_options --with-l10n-base="${topsrcdir}/browser/locales"
 
-export MOZ_APP_BASENAME=Zen
+export MOZ_APP_BASENAME=ZZen
 export MOZ_BRANDING_DIRECTORY=${brandingDir}
 export MOZ_OFFICIAL_BRANDING_DIRECTORY=${brandingDir}
 

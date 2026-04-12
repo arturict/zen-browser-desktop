@@ -10,6 +10,7 @@ BROWSER_CHROME_MANIFESTS += [
     "live-folders/browser.toml",
     "pinned/browser.toml",
     "popover/browser.toml",
+    "sidebar_profile_sync/browser.toml",
     "spaces/browser.toml",
     "split_view/browser.toml",
     "tabs/browser.toml",

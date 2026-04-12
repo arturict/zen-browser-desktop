@@ -5,6 +5,7 @@
 import checkForZenUpdates, {
   createWindowUpdateAnimation,
 } from "chrome://browser/content/ZenUpdates.mjs";
+import { ZenSidebarProfileSync } from "resource:///modules/zen/ZenSidebarProfileSync.sys.mjs";
 
 class ZenStartup {
   #watermarkIgnoreElements = ["zen-toast-container"];
@@ -96,6 +97,16 @@ class ZenStartup {
         .getElementById("tabbrowser-arrowscrollbox")
         .setAttribute("orient", "vertical");
       this.isReady = true;
+      window.gZenSidebarProfileSync =
+        window.gZenSidebarProfileSync || new ZenSidebarProfileSync();
+      try {
+        await window.gZenSidebarProfileSync.init(window);
+      } catch (error) {
+        console.error(
+          "ZenStartup: Error initializing sidebar profile sync",
+          error
+        );
+      }
       this.promiseInitializedResolve();
       delete this.promiseInitializedResolve;
     });
