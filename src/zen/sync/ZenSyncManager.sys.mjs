@@ -1,6 +1,8 @@
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
+import { RECORD_TYPES } from "resource:///modules/zen/ZenSyncConstants.sys.mjs";
 
 const lazy = {};
 
@@ -10,6 +12,13 @@ ChromeUtils.defineESModuleGetters(lazy, {
     "resource://gre/modules/ContextualIdentityService.sys.mjs",
   ZenWindowSync: "resource:///modules/zen/ZenWindowSync.sys.mjs",
 });
+
+XPCOMUtils.defineLazyPreferenceGetter(
+  lazy,
+  "gSyncOnlyPinnedTabs",
+  "zen.window-sync.sync-only-pinned-tabs",
+  true
+);
 
 function normalizeUserContextId(value) {
   const normalized = typeof value === "string" ? Number(value) : value;
@@ -34,11 +43,27 @@ class ZenSyncManager {
 
   #changedItems = new Map();
 
-  markItemChanged(item) {
-    if (item.type && item.id && !this.#ignoreChanges) {
-      const key = `${item.type}~${item.id}`;
-      this.#changedItems.set(key, { type: item.type, id: item.id });
+  #registerChange(type, id) {
+    if (id && !this.#ignoreChanges) {
+      const key = `${type}~${id}`;
+      this.#changedItems.set(key, { type, id });
     }
+  }
+
+  markTabChanged(id) {
+    this.#registerChange(RECORD_TYPES.TAB, id);
+  }
+
+  markSpaceChanged(id) {
+    this.#registerChange(RECORD_TYPES.SPACE, id);
+  }
+
+  markSplitChanged(id) {
+    this.#registerChange(RECORD_TYPES.SPLIT, id);
+  }
+
+  markFolderChanged(id) {
+    this.#registerChange(RECORD_TYPES.FOLDER, id);
   }
 
   #getChangedItems() {
@@ -154,6 +179,58 @@ class ZenSyncManager {
         // Container may already be gone locally.
       }
     }
+  }
+
+  createSyncableTabData(
+    tabData,
+    { position, trimHistoryForUnpinned = false } = {}
+  ) {
+    if (
+      !tabData?.zenSyncId ||
+      tabData.zenIsEmpty ||
+      tabData.zenLiveFolderItemId ||
+      (!tabData.pinned && lazy.gSyncOnlyPinnedTabs)
+    ) {
+      return null;
+    }
+
+    const pinned = !!tabData.pinned;
+    let entries = Array.isArray(tabData.entries) ? [...tabData.entries] : [];
+    let index = typeof tabData.index === "number" ? tabData.index : 1;
+
+    if (trimHistoryForUnpinned && !pinned && entries.length) {
+      const entryIndex = Math.max(0, index - 1);
+      const entry = entries[entryIndex] || entries[0];
+      entries = entry ? [entry] : [];
+      index = 1;
+    }
+
+    const isEssential = !!tabData.zenEssential;
+    const syncTabData = {
+      entries,
+      groupId: tabData.groupId || null,
+      image: typeof tabData.image === "string" ? tabData.image : "",
+      index,
+      pinned,
+      userContextId: parseInt(tabData.userContextId, 10) || 0,
+      zenDefaultUserContextId: !!tabData.zenDefaultUserContextId,
+      zenEssential: isEssential,
+      zenHasStaticIcon: !!tabData.zenHasStaticIcon,
+      zenSyncId: tabData.zenSyncId,
+      zenWorkspace: isEssential ? null : tabData.zenWorkspace || null,
+    };
+
+    if (typeof tabData.zenStaticLabel === "string") {
+      syncTabData.zenStaticLabel = tabData.zenStaticLabel;
+    }
+    if (tabData._zenPinnedInitialState) {
+      syncTabData._zenPinnedInitialState = tabData._zenPinnedInitialState;
+    }
+    if (typeof position === "number") {
+      syncTabData.position = position;
+    }
+
+    return syncTabData;
   }
 }
 
