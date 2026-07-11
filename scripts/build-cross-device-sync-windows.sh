@@ -146,16 +146,23 @@ if ! test -d "${HOME}/win-cross/vs2026/VC/Tools/MSVC"; then
   cd ..
 fi
 
+import_signature="$(git ls-files -s -- common src | sha256sum | cut -d' ' -f1)"
+import_stamp="/work/.zen-sync-import-signature"
 if ! test -f engine/zen/sync/ZenSyncManager.sys.mjs; then
   SURFER_COMPAT=x86_64 npm run import -- --verbose
-else
+elif ! test -f "${import_stamp}" ||
+  test "$(cat "${import_stamp}")" != "${import_signature}"; then
   SURFER_COMPAT=x86_64 npx surfer import --verbose
 fi
+printf '%s\n' "${import_signature}" >"${import_stamp}"
 if ! grep -q '^ac_add_options --disable-crashreporter$' configs/common/mozconfig; then
   printf '\nac_add_options --disable-crashreporter\n' >>configs/common/mozconfig
 fi
 if ! grep -q '^ac_add_options --disable-debug-symbols$' configs/common/mozconfig; then
   printf '\nac_add_options --disable-debug-symbols\n' >>configs/common/mozconfig
+fi
+if ! grep -q '^ac_add_options --disable-maintenance-service$' configs/common/mozconfig; then
+  printf '\nac_add_options --disable-maintenance-service\n' >>configs/common/mozconfig
 fi
 chmod -R +x "${HOME}/win-cross/vs2026" || true
 SURFER_PLATFORM=win32 npm run bootstrap
@@ -206,6 +213,11 @@ SURFER_COMPAT=x86_64 \
   SURFER_PLATFORM=win32 \
   ZEN_CROSS_COMPILING=1 \
   npm run build -- -j "${ZEN_SYNC_JOBS}"
+
+linux_objdir="engine/obj-x86_64-pc-linux-gnu"
+if test -d "${linux_objdir}"; then
+  mv -- "${linux_objdir}" "/work/unused-linux-objdir-$(date +%s)"
+fi
 
 SURFER_COMPAT=x86_64 \
   SURFER_PLATFORM=win32 \
