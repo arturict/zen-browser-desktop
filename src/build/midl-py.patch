@@ -1,0 +1,12 @@
+diff --git a/build/midl.py b/build/midl.py
+index 8c7d8defd3..130e136bfd 100644
+--- a/build/midl.py
++++ b/build/midl.py
+@@ -103,6 +103,6 @@ def preprocess(base, input, flags):
+             except RuntimeError:
+                 pass
+-        command = preprocessor + [input]
++        command = preprocessor + [relativize(input)]
+         preprocessed = os.path.join(base, os.path.basename(input))
+         subprocess.run(command, stdout=open(preprocessed, "wb"), check=True)
+         # Read the resulting file, and search for imports, that we'll want to
