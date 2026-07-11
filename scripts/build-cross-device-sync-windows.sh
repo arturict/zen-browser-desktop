@@ -7,9 +7,6 @@ export ZEN_SYNC_BRANCH="${ZEN_SYNC_BRANCH:-codex/cross-device-sidebar-sync}"
 export ZEN_SYNC_JOBS="${ZEN_SYNC_JOBS:-4}"
 export ZEN_SYNC_REPOSITORY="${ZEN_SYNC_REPOSITORY:-https://github.com/arturict/zen-browser-desktop.git}"
 export ZEN_DISABLE_LTO="${ZEN_DISABLE_LTO:-1}"
-export MOZ_DEBUG_RUST="${MOZ_DEBUG_RUST:-1}"
-export ZEN_GA_DISABLE_PGO="${ZEN_GA_DISABLE_PGO:-1}"
-export ZEN_RELEASE="${ZEN_RELEASE:-1}"
 
 apt-get update
 apt-get install -y ca-certificates curl git software-properties-common sudo
@@ -97,9 +94,6 @@ sudo -H -u builder env \
   ZEN_SYNC_JOBS="${ZEN_SYNC_JOBS}" \
   ZEN_SYNC_REPOSITORY="${ZEN_SYNC_REPOSITORY}" \
   ZEN_DISABLE_LTO="${ZEN_DISABLE_LTO}" \
-  MOZ_DEBUG_RUST="${MOZ_DEBUG_RUST}" \
-  ZEN_GA_DISABLE_PGO="${ZEN_GA_DISABLE_PGO}" \
-  ZEN_RELEASE="${ZEN_RELEASE}" \
   bash <<'BUILD'
 set -euxo pipefail
 
@@ -151,6 +145,9 @@ fi
 if ! test -f engine/zen/sync/ZenSyncManager.sys.mjs; then
   SURFER_COMPAT=x86_64 npm run import -- --verbose
 fi
+if ! grep -q '^ac_add_options --disable-crashreporter$' configs/common/mozconfig; then
+  printf '\nac_add_options --disable-crashreporter\n' >>configs/common/mozconfig
+fi
 chmod -R +x "${HOME}/win-cross/vs2026" || true
 SURFER_PLATFORM=win32 npm run bootstrap
 
@@ -190,6 +187,7 @@ SURFER_COMPAT=x86_64 \
 SURFER_COMPAT=x86_64 \
   SURFER_PLATFORM=win32 \
   ZEN_CROSS_COMPILING=1 \
+  ZEN_RELEASE=1 \
   npm run package
 
 cp dist/*.zip /artifacts/

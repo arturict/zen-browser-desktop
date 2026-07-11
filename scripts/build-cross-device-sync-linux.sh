@@ -7,9 +7,6 @@ export ZEN_SYNC_BRANCH="${ZEN_SYNC_BRANCH:-codex/cross-device-sidebar-sync}"
 export ZEN_SYNC_JOBS="${ZEN_SYNC_JOBS:-4}"
 export ZEN_SYNC_REPOSITORY="${ZEN_SYNC_REPOSITORY:-https://github.com/arturict/zen-browser-desktop.git}"
 export ZEN_DISABLE_LTO="${ZEN_DISABLE_LTO:-1}"
-export MOZ_DEBUG_RUST="${MOZ_DEBUG_RUST:-1}"
-export ZEN_GA_DISABLE_PGO="${ZEN_GA_DISABLE_PGO:-1}"
-export ZEN_RELEASE="${ZEN_RELEASE:-1}"
 
 apt-get update
 apt-get install -y \
@@ -66,9 +63,6 @@ sudo -H -u builder env \
   ZEN_SYNC_JOBS="${ZEN_SYNC_JOBS}" \
   ZEN_SYNC_REPOSITORY="${ZEN_SYNC_REPOSITORY}" \
   ZEN_DISABLE_LTO="${ZEN_DISABLE_LTO}" \
-  MOZ_DEBUG_RUST="${MOZ_DEBUG_RUST}" \
-  ZEN_GA_DISABLE_PGO="${ZEN_GA_DISABLE_PGO}" \
-  ZEN_RELEASE="${ZEN_RELEASE}" \
   bash <<'BUILD'
 set -euxo pipefail
 
@@ -101,13 +95,17 @@ if ! test -f engine/zen/sync/ZenSyncManager.sys.mjs; then
   npm run import
 fi
 
+if ! grep -q '^ac_add_options --disable-crashreporter$' configs/common/mozconfig; then
+  printf '\nac_add_options --disable-crashreporter\n' >>configs/common/mozconfig
+fi
+
 cd engine
 ./mach --no-interactive bootstrap --application-choice browser
 ./mach configure
 cd ..
 
 npm run build -- -j "${ZEN_SYNC_JOBS}"
-SURFER_PLATFORM=linux npm run package
+SURFER_PLATFORM=linux ZEN_RELEASE=1 npm run package
 
 cp dist/zen-*.tar.xz /artifacts/
 if test -f dist/output.mar; then
