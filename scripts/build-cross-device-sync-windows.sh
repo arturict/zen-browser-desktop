@@ -96,46 +96,75 @@ sudo -H -u builder env \
 set -euxo pipefail
 
 cd /work
-git clone --depth 1 --branch "${ZEN_SYNC_BRANCH}" "${ZEN_SYNC_REPOSITORY}" source
+if ! test -d source/.git; then
+  git clone --depth 1 --branch "${ZEN_SYNC_BRANCH}" "${ZEN_SYNC_REPOSITORY}" source
+fi
 cd source
 
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs |
-  sh -s -- -y --default-toolchain 1.90
+if ! test -f "${HOME}/.cargo/env"; then
+  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs |
+    sh -s -- -y --default-toolchain 1.90
+fi
 source "${HOME}/.cargo/env"
 rustup target add x86_64-pc-windows-msvc
 
-npm ci
+if ! test -d node_modules; then
+  npm ci
+fi
 npm run surfer -- ci --brand release --display-version 1.21.6b
-npm run download
+if ! test -d engine; then
+  npm run download
+fi
+
+git -C engine config user.name "Zen Sync Builder"
+git -C engine config user.email "zen-sync-builder@localhost"
+if ! git -C engine rev-parse --verify HEAD >/dev/null 2>&1; then
+  git -C engine add -A
+  git -C engine commit -m "Firefox build baseline"
+fi
 
 mkdir -p "${HOME}/win-cross"
-cd engine
-aria2c \
-  'https://firefox-ci-tc.services.mozilla.com/api/queue/v1/task/dQz_aHy8Rl-Lt0xf2WlrMw/artifacts/public/build/wine.tar.zst' \
-  -o wine.tar.zst
-tar --zstd -xf wine.tar.zst -C "${HOME}/win-cross"
-rm wine.tar.zst
-./mach python --virtualenv build \
-  taskcluster/scripts/misc/get_vs.py \
-  build/vs/vs2026.yaml \
-  "${HOME}/win-cross/vs2026"
-cd ..
+if ! test -d "${HOME}/win-cross/vs2026/VC/Tools/MSVC"; then
+  cd engine
+  if ! test -d "${HOME}/win-cross/wine"; then
+    aria2c \
+      'https://firefox-ci-tc.services.mozilla.com/api/queue/v1/task/dQz_aHy8Rl-Lt0xf2WlrMw/artifacts/public/build/wine.tar.zst' \
+      -o wine.tar.zst
+    tar --zstd -xf wine.tar.zst -C "${HOME}/win-cross"
+    rm wine.tar.zst
+  fi
+  ./mach python --virtualenv build \
+    taskcluster/scripts/misc/get_vs.py \
+    build/vs/vs2026.yaml \
+    "${HOME}/win-cross/vs2026"
+  cd ..
+fi
 
-SURFER_COMPAT=x86_64 npm run import -- --verbose
+if ! test -f engine/zen/sync/ZenSyncManager.sys.mjs; then
+  SURFER_COMPAT=x86_64 npm run import -- --verbose
+fi
 chmod -R +x "${HOME}/win-cross/vs2026" || true
 SURFER_PLATFORM=win32 npm run bootstrap
 
 clang_windows_lib="$(find "${HOME}/.mozbuild/clang/lib/clang" \
   -path '*/lib/windows' -type d -print -quit)"
-printf '\nexport LIB="%s"\n' "${clang_windows_lib}" >>configs/common/mozconfig
+if ! grep -q '^export LIB=' configs/common/mozconfig; then
+  printf '\nexport LIB="%s"\n' "${clang_windows_lib}" >>configs/common/mozconfig
+fi
 
 windows_rs_version="$(cat build/windows/.windows-rs-version)"
 cd engine
-cargo install cargo-download --locked
-cargo download -x "windows=${windows_rs_version}"
-printf '\nexport MOZ_WINDOWS_RS_DIR=%s/windows-%s\n' \
-  "$(pwd)" \
-  "${windows_rs_version}" >>../configs/common/mozconfig
+if ! command -v cargo-download >/dev/null 2>&1; then
+  cargo install cargo-download --locked
+fi
+if ! test -d "windows-${windows_rs_version}"; then
+  cargo download -x "windows=${windows_rs_version}"
+fi
+if ! grep -q '^export MOZ_WINDOWS_RS_DIR=' ../configs/common/mozconfig; then
+  printf '\nexport MOZ_WINDOWS_RS_DIR=%s/windows-%s\n' \
+    "$(pwd)" \
+    "${windows_rs_version}" >>../configs/common/mozconfig
+fi
 cd ..
 
 dos2unix configs/windows/mozconfig
