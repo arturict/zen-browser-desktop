@@ -1,0 +1,161 @@
+#!/usr/bin/env bash
+
+set -euxo pipefail
+
+export DEBIAN_FRONTEND=noninteractive
+export ZEN_SYNC_BRANCH="${ZEN_SYNC_BRANCH:-codex/cross-device-sidebar-sync}"
+export ZEN_SYNC_JOBS="${ZEN_SYNC_JOBS:-6}"
+export ZEN_SYNC_REPOSITORY="${ZEN_SYNC_REPOSITORY:-https://github.com/arturict/zen-browser-desktop.git}"
+
+apt-get update
+apt-get install -y ca-certificates curl git software-properties-common sudo
+add-apt-repository -y universe
+add-apt-repository -y ppa:savoury1/backports
+curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+
+apt-get update
+apt-get install -y \
+  aria2 \
+  autoconf \
+  autoconf2.13 \
+  automake \
+  bison \
+  build-essential \
+  bzip2 \
+  cabextract \
+  clang \
+  cmake \
+  dos2unix \
+  flex \
+  g++-multilib \
+  gawk \
+  gcc-multilib \
+  gnupg \
+  jq \
+  libbz2-dev \
+  libcurl4-openssl-dev \
+  libdbus-1-dev \
+  libdbus-glib-1-dev \
+  libdrm-dev \
+  libexpat1-dev \
+  libffi-dev \
+  libgtk-3-dev \
+  libgtk2.0-dev \
+  libncurses-dev \
+  libpulse-dev \
+  libpython3-dev \
+  libsqlite3-dev \
+  libssl-dev \
+  libtool \
+  libucl-dev \
+  libx11-xcb-dev \
+  libxml2-dev \
+  libxt-dev \
+  lld \
+  llvm \
+  m4 \
+  msitools \
+  nasm \
+  ninja-build \
+  nodejs \
+  openssh-client \
+  p7zip-full \
+  pkg-config \
+  procps \
+  python3 \
+  python3-launchpadlib \
+  python3-pip \
+  python3-requests \
+  python3-toml \
+  python3-venv \
+  scons \
+  subversion \
+  tar \
+  unzip \
+  uuid \
+  uuid-dev \
+  wget \
+  xz-utils \
+  yasm \
+  zip \
+  zlib1g-dev \
+  zstd
+
+if ! id builder >/dev/null 2>&1; then
+  useradd --create-home --shell /bin/bash builder
+fi
+echo "builder ALL=(ALL) NOPASSWD:ALL" >/etc/sudoers.d/builder
+mkdir -p /work /artifacts
+chown -R builder:builder /work /artifacts
+
+sudo -H -u builder env \
+  ZEN_SYNC_BRANCH="${ZEN_SYNC_BRANCH}" \
+  ZEN_SYNC_JOBS="${ZEN_SYNC_JOBS}" \
+  ZEN_SYNC_REPOSITORY="${ZEN_SYNC_REPOSITORY}" \
+  bash <<'BUILD'
+set -euxo pipefail
+
+cd /work
+git clone --depth 1 --branch "${ZEN_SYNC_BRANCH}" "${ZEN_SYNC_REPOSITORY}" source
+cd source
+
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs |
+  sh -s -- -y --default-toolchain 1.90
+source "${HOME}/.cargo/env"
+rustup target add x86_64-pc-windows-msvc
+
+npm ci
+npm run surfer -- ci --brand release --display-version 1.21.6b
+npm run download
+
+mkdir -p "${HOME}/win-cross"
+cd engine
+aria2c \
+  'https://firefox-ci-tc.services.mozilla.com/api/queue/v1/task/dQz_aHy8Rl-Lt0xf2WlrMw/artifacts/public/build/wine.tar.zst' \
+  -o wine.tar.zst
+tar --zstd -xf wine.tar.zst -C "${HOME}/win-cross"
+rm wine.tar.zst
+./mach python --virtualenv build \
+  taskcluster/scripts/misc/get_vs.py \
+  build/vs/vs2026.yaml \
+  "${HOME}/win-cross/vs2026"
+cd ..
+
+SURFER_COMPAT=x86_64 npm run import -- --verbose
+chmod -R +x "${HOME}/win-cross/vs2026" || true
+SURFER_PLATFORM=win32 npm run bootstrap
+
+clang_windows_lib="$(find "${HOME}/.mozbuild/clang/lib/clang" \
+  -path '*/lib/windows' -type d -print -quit)"
+printf '\nexport LIB="%s"\n' "${clang_windows_lib}" >>configs/common/mozconfig
+
+windows_rs_version="$(cat build/windows/.windows-rs-version)"
+cd engine
+cargo install cargo-download --locked
+cargo download -x "windows=${windows_rs_version}"
+printf '\nexport MOZ_WINDOWS_RS_DIR=%s/windows-%s\n' \
+  "$(pwd)" \
+  "${windows_rs_version}" >>../configs/common/mozconfig
+cd ..
+
+dos2unix configs/windows/mozconfig
+SURFER_COMPAT=x86_64 \
+  SURFER_PLATFORM=win32 \
+  ZEN_CROSS_COMPILING=1 \
+  npm run build -- -j "${ZEN_SYNC_JOBS}"
+
+SURFER_COMPAT=x86_64 \
+  SURFER_PLATFORM=win32 \
+  ZEN_CROSS_COMPILING=1 \
+  ZEN_RELEASE=1 \
+  npm run package
+
+cp dist/*.zip /artifacts/
+if test -f dist/zen.installer.exe; then
+  cp dist/zen.installer.exe /artifacts/
+fi
+if test -f dist/output.mar; then
+  cp dist/output.mar /artifacts/
+fi
+git rev-parse HEAD >/artifacts/source-commit.txt
+BUILD
