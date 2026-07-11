@@ -148,6 +148,9 @@ fi
 if ! grep -q '^ac_add_options --disable-crashreporter$' configs/common/mozconfig; then
   printf '\nac_add_options --disable-crashreporter\n' >>configs/common/mozconfig
 fi
+if ! grep -q '^ac_add_options --disable-debug-symbols$' configs/common/mozconfig; then
+  printf '\nac_add_options --disable-debug-symbols\n' >>configs/common/mozconfig
+fi
 chmod -R +x "${HOME}/win-cross/vs2026" || true
 SURFER_PLATFORM=win32 npm run bootstrap
 
