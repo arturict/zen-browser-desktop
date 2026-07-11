@@ -1,0 +1,20 @@
+diff --git a/config/rules.mk b/config/rules.mk
+index bfb846f142..60c7e6d052 100644
+--- a/config/rules.mk
++++ b/config/rules.mk
+@@ -576,6 +576,6 @@ $(COBJS):
+ 	$(REPORT_BUILD_VERBOSE)
+ 	$(call BUILDSTATUS,OBJECT_FILE $@)
+-	$(CC) $(OUTOPTION)$@ -c $(COMPILE_CFLAGS) $($(notdir $<)_FLAGS) $<
++	$(CC) $(OUTOPTION)$@ -c $(COMPILE_CFLAGS) $($(notdir $<)_FLAGS) $(call relativize,$<)
+ 	$(call BUILDSTATUS,END_Object $@)
+ 
+ $(CWASMOBJS):
+@@ -666,6 +666,6 @@ $(CPPOBJS):
+ 	$(REPORT_BUILD_VERBOSE)
+ 	$(call BUILDSTATUS,OBJECT_FILE $@)
+-	$(CCC) $(OUTOPTION)$@ -c $(COMPILE_CXXFLAGS) $($(notdir $<)_FLAGS) $<
++	$(CCC) $(OUTOPTION)$@ -c $(COMPILE_CXXFLAGS) $($(notdir $<)_FLAGS) $(call relativize,$<)
+ 	$(call BUILDSTATUS,END_Object $@)
+ 
+ $(CPPWASMOBJS):
