@@ -174,6 +174,10 @@ class nsZenWindowSync {
     return null;
   }
 
+  get syncedWindows() {
+    return this.#browserWindowsList;
+  }
+
   init() {
     if (this.#initialized) {
       return;
@@ -258,7 +262,6 @@ class nsZenWindowSync {
     for (let eventName of EVENTS) {
       aWindow.addEventListener(eventName, this, true);
     }
-    aWindow.gBrowser?.addTabsProgressListener(this);
     this.#maybeTriggerInitialTabSync(aWindow);
   }
 
@@ -388,6 +391,12 @@ class nsZenWindowSync {
       !window.gZenStartup.isReady ||
       !window.gZenWorkspaces?.shouldHaveWorkspaces ||
       window._zenClosingWindow
+    ) {
+      return;
+    }
+    if (
+      lazy.ZenSyncStore.isApplyingIncomingChanges &&
+      aEvent.type !== "SSWindowClosing"
     ) {
       return;
     }
@@ -1354,8 +1363,12 @@ class nsZenWindowSync {
     });
   }
 
-  #notifySyncItemChanged(item) {
+  #notifySyncItemChanged(item, { allowUnpinned = false } = {}) {
     if (!item?.id) {
+      return;
+    }
+
+    if (lazy.ZenSyncStore.isApplyingIncomingChanges) {
       return;
     }
 
@@ -1364,7 +1377,7 @@ class nsZenWindowSync {
       return;
     }
 
-    if (lazy.gSyncOnlyPinnedTabs && !item.pinned) {
+    if (!allowUnpinned && !item.pinned) {
       return;
     }
 
@@ -1372,11 +1385,15 @@ class nsZenWindowSync {
       return;
     }
 
-    this.#maybeFlushTabState(item).finally(() => {
-      if (!item.hasAttribute("zen-empty-tab")) {
-        lazy.ZenSyncStore.markTabChanged(item.id);
-      }
-    });
+    void this.#maybeFlushTabState(item)
+      .then(() => {
+        if (!item.hasAttribute("zen-empty-tab")) {
+          lazy.ZenSyncStore.markTabChanged(item.id);
+        }
+      })
+      .catch(error => {
+        console.error("ZenWindowSync: Failed to flush tab before Sync", error);
+      });
   }
 
   /* Mark: Event Handlers */
@@ -1506,7 +1523,7 @@ class nsZenWindowSync {
 
   on_TabUnpinned(aEvent) {
     const tab = aEvent.target;
-    this.#notifySyncItemChanged(tab);
+    this.#notifySyncItemChanged(tab, { allowUnpinned: true });
     this.#runOnAllWindows(null, win => {
       const targetTab = this.getItemFromWindow(win, tab.id);
       if (targetTab) {
@@ -1598,42 +1615,12 @@ class nsZenWindowSync {
     });
   }
 
-  /**
-   * Fired by tabbrowser for top-level location changes in any tab.
-   * We use this to mark the tab as changed so Firefox Sync can persist
-   * URL/history updates even when no tab label/icon event fires.
-   *
-   * @param aBrowser
-   * @param aWebProgress
-   * @param _aRequest
-   * @param _aLocation
-   * @param _aFlags
-   */
-  onLocationChange(aBrowser, aWebProgress, _aRequest, _aLocation, _aFlags) {
-    if (!aWebProgress?.isTopLevel) {
-      return;
-    }
-
-    const gBrowser = aBrowser?.getTabBrowser?.();
-    if (!gBrowser) {
-      return;
-    }
-
-    const tab = gBrowser.getTabForBrowser(aBrowser);
-    if (!tab || tab.closing) {
-      return;
-    }
-
-    this.#notifySyncItemChanged(tab);
-  }
-
   on_SSWindowClosing(aEvent) {
     const window = aEvent.target.documentGlobal ?? aEvent.target;
     window._zenClosingWindow = true;
     for (let eventName of EVENTS) {
       window.removeEventListener(eventName, this);
     }
-    window.gBrowser?.removeTabsProgressListener(this);
     delete window.gZenWindowSync;
     const { promise, resolve } = Promise.withResolvers();
     this.#docShellSwitchPromise = promise;

@@ -14,6 +14,8 @@ ChromeUtils.defineESModuleGetters(lazy, {
   PrivateBrowsingUtils: "resource://gre/modules/PrivateBrowsingUtils.sys.mjs",
   SessionStore: "resource:///modules/sessionstore/SessionStore.sys.mjs",
   SessionStartup: "resource:///modules/sessionstore/SessionStartup.sys.mjs",
+  ContextualIdentityService:
+    "resource://gre/modules/ContextualIdentityService.sys.mjs",
   gWindowSyncEnabled: "resource:///modules/zen/ZenWindowSync.sys.mjs",
   gSyncOnlyPinnedTabs: "resource:///modules/zen/ZenWindowSync.sys.mjs",
   DeferredTask: "resource://gre/modules/DeferredTask.sys.mjs",
@@ -43,6 +45,10 @@ const SHOULD_BACKUP_FILE = Services.prefs.getBoolPref(
   true
 );
 const FILE_NAME = "zen-sessions.jsonlz4";
+const SYNC_BACKUP_FOLDER_NAME = "zen-sync-backups";
+const MAX_SYNC_BACKUPS = 20;
+const SYNC_BACKUP_FILES = [FILE_NAME, "containers.json", "prefs.js"];
+const SYNC_BACKUP_MIN_INTERVAL_MS = 10 * 60 * 1000;
 
 const LAST_BUILD_ID_PREF = "zen.session-store.last-build-id";
 
@@ -94,6 +100,8 @@ export class nsZenSessionManager {
    * A deferred task to create backups of the session file.
    */
   #deferredBackupTask = null;
+  #lastSyncBackupAt = 0;
+  #lastSyncBackupPath = null;
 
   init() {
     this.log("Initializing session manager");
@@ -631,6 +639,91 @@ export class nsZenSessionManager {
    */
   getSidebarData() {
     return this.#sidebarWithoutCloning;
+  }
+
+  /**
+   * Refreshes the in-memory sidebar model and its durable file without
+   * notifying Sync about changes. Incoming applies use this before creating
+   * recovery snapshots and before serializing post-merge cleanup records.
+   */
+  async flushCurrentStateForSync() {
+    if (!this.#file) {
+      return;
+    }
+    const state = lazy.SessionStore.getCurrentState(true);
+    const windows = (state?.windows || []).filter(window =>
+      this.#isWindowSaveable(window)
+    );
+    if (!windows.length) {
+      return;
+    }
+    this.#collectWindowData(windows);
+    this.#file.data = this.#sidebarWithoutCloning;
+    await this.#file._save();
+  }
+
+  /**
+   * Saves the durable sidebar, container, and preference files before remote
+   * Sync data is applied. A failed backup aborts the incoming apply so Sync can
+   * retry without risking the local profile.
+   *
+   * @returns {Promise<string|null>} The created backup directory, if any.
+   */
+  async createSyncBackup() {
+    if (
+      this.#lastSyncBackupPath &&
+      Date.now() - this.#lastSyncBackupAt < SYNC_BACKUP_MIN_INTERVAL_MS &&
+      (await IOUtils.exists(this.#lastSyncBackupPath))
+    ) {
+      return this.#lastSyncBackupPath;
+    }
+
+    await this.flushCurrentStateForSync();
+
+    // The opaque container mapping lives in prefs.js. Flush in-memory prefs so
+    // the recovery snapshot contains the exact mapping used for this apply.
+    Services.prefs.savePrefFile(null);
+    if (lazy.ContextualIdentityService._saver) {
+      await lazy.ContextualIdentityService._saver.finalize();
+    }
+
+    const availableFiles = [];
+    for (const fileName of SYNC_BACKUP_FILES) {
+      const source = PathUtils.join(PathUtils.profileDir, fileName);
+      if (await IOUtils.exists(source)) {
+        availableFiles.push({ fileName, source });
+      }
+    }
+    if (!availableFiles.length) {
+      return null;
+    }
+
+    const backupRoot = PathUtils.join(
+      PathUtils.profileDir,
+      SYNC_BACKUP_FOLDER_NAME
+    );
+    const timestamp = new Date().toISOString().replaceAll(":", "-");
+    const backupDirectory = PathUtils.join(backupRoot, `pre-sync-${timestamp}`);
+
+    await IOUtils.makeDirectory(backupDirectory, { createAncestors: true });
+    for (const { fileName, source } of availableFiles) {
+      await IOUtils.copy(source, PathUtils.join(backupDirectory, fileName), {
+        noOverwrite: true,
+      });
+    }
+
+    const backupPrefix = PathUtils.join(backupRoot, "pre-sync-");
+    const backups = (await IOUtils.getChildren(backupRoot))
+      .filter(path => path.startsWith(backupPrefix))
+      .sort();
+    for (let index = 0; index < backups.length - MAX_SYNC_BACKUPS; index++) {
+      await IOUtils.remove(backups[index], { recursive: true });
+    }
+
+    this.log("Created pre-Sync recovery snapshot", backupDirectory);
+    this.#lastSyncBackupAt = Date.now();
+    this.#lastSyncBackupPath = backupDirectory;
+    return backupDirectory;
   }
 
   /**

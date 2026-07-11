@@ -13,10 +13,7 @@ export const RECORD_TYPES = Object.freeze({
 export const WORKSPACES_ENGINE_NAME = "Spaces";
 export const WORKSPACES_RECORD_LOG_NAME = "Sync.Record.ZenSpaces";
 export const WORKSPACES_RECORD_TYPE = "spaces";
-
-export const SYNC_PREFS = Object.freeze({
-  SYNC_ONLY_PINNED_TABS: "zen.window-sync.sync-only-pinned-tabs",
-});
+export const CONTAINER_SYNC_MAPPINGS_PREF = "zen.sync.container-id-mappings";
 
 export const OBSERVER_TOPICS = Object.freeze({
   ZEN_WORKSPACE_ITEM_CHANGED: "zen-workspace-item-changed",

@@ -1,10 +1,13 @@
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
-import { RECORD_TYPES } from "resource:///modules/zen/ZenSyncConstants.sys.mjs";
+import {
+  CONTAINER_SYNC_MAPPINGS_PREF,
+  RECORD_TYPES,
+} from "resource:///modules/zen/ZenSyncConstants.sys.mjs";
 
 const lazy = {};
+const MAX_CONTAINER_SEMANTIC_ORDINAL = 128;
 
 ChromeUtils.defineESModuleGetters(lazy, {
   ZenSessionStore: "resource:///modules/zen/ZenSessionManager.sys.mjs",
@@ -13,16 +16,20 @@ ChromeUtils.defineESModuleGetters(lazy, {
   ZenWindowSync: "resource:///modules/zen/ZenWindowSync.sys.mjs",
 });
 
-XPCOMUtils.defineLazyPreferenceGetter(
-  lazy,
-  "gSyncOnlyPinnedTabs",
-  "zen.window-sync.sync-only-pinned-tabs",
-  true
-);
-
 function normalizeUserContextId(value) {
   const normalized = typeof value === "string" ? Number(value) : value;
   if (!Number.isSafeInteger(normalized) || normalized <= 0) {
+    return null;
+  }
+  return normalized;
+}
+
+function normalizeContainerSyncId(value) {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const normalized = value.trim();
+  if (!normalized || normalized.length > 64 || normalized.includes("~")) {
     return null;
   }
   return normalized;
@@ -33,6 +40,18 @@ class ZenSyncManager {
     return lazy.ZenSessionStore.getSidebarData();
   }
 
+  isSyncableTabUrl(url) {
+    if (typeof url !== "string") {
+      return false;
+    }
+    const separator = url.indexOf(":");
+    if (separator <= 0) {
+      return false;
+    }
+    const scheme = url.slice(0, separator).toLowerCase();
+    return scheme === "http" || scheme === "https" || scheme === "about";
+  }
+
   /**
    * Whether to ignore changes to items. This is used to prevent
    * infinite loops when applying incoming sync changes.
@@ -41,7 +60,191 @@ class ZenSyncManager {
    */
   #ignoreChanges = false;
 
+  get isApplyingIncomingChanges() {
+    return this.#ignoreChanges;
+  }
+
   #changedItems = new Map();
+  #postApplyItems = new Map();
+
+  // Firefox container IDs are profile-local, so Sync uses opaque IDs and
+  // keeps aliases when independently-created containers are reconciled.
+  #containerMappings = null;
+
+  #getContainerMappings() {
+    if (this.#containerMappings) {
+      return this.#containerMappings;
+    }
+
+    let stored = {};
+    try {
+      stored = JSON.parse(
+        Services.prefs.getStringPref(CONTAINER_SYNC_MAPPINGS_PREF, "{}")
+      );
+    } catch {
+      // A malformed local mapping is rebuilt as containers are encountered.
+    }
+    if (!stored || typeof stored !== "object" || Array.isArray(stored)) {
+      stored = {};
+    }
+
+    const primaryByLocalId = {};
+    const localIdBySyncId = {};
+    for (const [localIdValue, syncIdValue] of Object.entries(
+      stored.primaryByLocalId || {}
+    )) {
+      const localId = normalizeUserContextId(localIdValue);
+      const syncId = normalizeContainerSyncId(syncIdValue);
+      if (localId && syncId) {
+        localIdBySyncId[syncId] = localId;
+      }
+    }
+    for (const [syncIdValue, localIdValue] of Object.entries(
+      stored.localIdBySyncId || {}
+    )) {
+      const localId = normalizeUserContextId(localIdValue);
+      const syncId = normalizeContainerSyncId(syncIdValue);
+      if (localId && syncId) {
+        localIdBySyncId[syncId] = localId;
+      }
+    }
+    for (const [syncId, localId] of Object.entries(localIdBySyncId).sort()) {
+      primaryByLocalId[localId] ??= syncId;
+    }
+
+    this.#containerMappings = { primaryByLocalId, localIdBySyncId };
+    return this.#containerMappings;
+  }
+
+  #saveContainerMappings() {
+    Services.prefs.setStringPref(
+      CONTAINER_SYNC_MAPPINGS_PREF,
+      JSON.stringify({ version: 1, ...this.#getContainerMappings() })
+    );
+  }
+
+  #recomputePrimaryContainerSyncId(localId) {
+    const mappings = this.#getContainerMappings();
+    const aliases = Object.entries(mappings.localIdBySyncId)
+      .filter(([, mappedLocalId]) => mappedLocalId === localId)
+      .map(([syncId]) => syncId)
+      .sort();
+    if (aliases.length) {
+      mappings.primaryByLocalId[localId] = aliases[0];
+    } else {
+      delete mappings.primaryByLocalId[localId];
+    }
+  }
+
+  getContainerSyncIds(userContextId) {
+    const localId = normalizeUserContextId(userContextId);
+    if (!localId) {
+      return [];
+    }
+
+    const mappings = this.#getContainerMappings();
+    let aliases = Object.entries(mappings.localIdBySyncId)
+      .filter(([, mappedLocalId]) => mappedLocalId === localId)
+      .map(([syncId]) => syncId)
+      .sort();
+    if (!aliases.length) {
+      const syncId = this.getContainerSyncId(localId);
+      aliases = syncId ? [syncId] : [];
+    }
+    return aliases;
+  }
+
+  getContainerSyncId(userContextId) {
+    const localId = normalizeUserContextId(userContextId);
+    if (!localId) {
+      return null;
+    }
+
+    const mappings = this.#getContainerMappings();
+    if (mappings.primaryByLocalId[localId]) {
+      return mappings.primaryByLocalId[localId];
+    }
+
+    let syncId;
+    do {
+      syncId = Services.uuid.generateUUID().toString().slice(1, -1);
+    } while (mappings.localIdBySyncId[syncId]);
+    mappings.primaryByLocalId[localId] = syncId;
+    mappings.localIdBySyncId[syncId] = localId;
+    this.#saveContainerMappings();
+    return syncId;
+  }
+
+  resolveLocalContainerId(syncIdValue) {
+    const syncId = normalizeContainerSyncId(syncIdValue);
+    if (!syncId) {
+      return null;
+    }
+    return (
+      normalizeUserContextId(
+        this.#getContainerMappings().localIdBySyncId[syncId]
+      ) || null
+    );
+  }
+
+  #associateContainerSyncId(userContextId, syncIdValue) {
+    const localId = normalizeUserContextId(userContextId);
+    const syncId = normalizeContainerSyncId(syncIdValue);
+    if (!localId || !syncId) {
+      return null;
+    }
+
+    const mappings = this.#getContainerMappings();
+    const previousLocalId = mappings.localIdBySyncId[syncId];
+    if (previousLocalId && previousLocalId !== localId) {
+      delete mappings.localIdBySyncId[syncId];
+      this.#recomputePrimaryContainerSyncId(previousLocalId);
+    }
+
+    mappings.localIdBySyncId[syncId] = localId;
+    this.#recomputePrimaryContainerSyncId(localId);
+    this.#saveContainerMappings();
+    return localId;
+  }
+
+  #getContainerSemanticSignature(container) {
+    if (!container) {
+      return null;
+    }
+    const name = container.l10nId
+      ? null
+      : lazy.ContextualIdentityService.getUserContextLabel(
+          container.userContextId
+        )
+          .trim()
+          .toLocaleLowerCase();
+    return JSON.stringify({
+      l10nId: container.l10nId || null,
+      name,
+      icon: container.icon || null,
+      color: container.color || null,
+    });
+  }
+
+  getContainerSemanticOrdinal(userContextId) {
+    const localId = normalizeUserContextId(userContextId);
+    const containers = lazy.ContextualIdentityService.getPublicIdentities();
+    const container = containers.find(
+      candidate => candidate.userContextId === localId
+    );
+    const signature = this.#getContainerSemanticSignature(container);
+    if (!signature) {
+      return 0;
+    }
+    const ordinal = containers
+      .filter(
+        candidate =>
+          this.#getContainerSemanticSignature(candidate) === signature
+      )
+      .sort((a, b) => a.userContextId - b.userContextId)
+      .findIndex(candidate => candidate.userContextId === localId);
+    return Math.max(0, ordinal);
+  }
 
   #registerChange(type, id) {
     if (id && !this.#ignoreChanges) {
@@ -66,6 +269,47 @@ class ZenSyncManager {
     this.#registerChange(RECORD_TYPES.FOLDER, id);
   }
 
+  #queuePostApplyRecord(type, id) {
+    if (!type || !id) {
+      return;
+    }
+    this.#postApplyItems.set(`${type}~${id}`, { type, id });
+  }
+
+  markSpaceRecordObsolete(id) {
+    this.#queuePostApplyRecord(RECORD_TYPES.SPACE, id);
+  }
+
+  markTabRecordObsolete(id) {
+    this.#queuePostApplyRecord(RECORD_TYPES.TAB, id);
+  }
+
+  markFolderRecordObsolete(id) {
+    this.#queuePostApplyRecord(RECORD_TYPES.FOLDER, id);
+  }
+
+  markSplitRecordObsolete(id) {
+    this.#queuePostApplyRecord(RECORD_TYPES.SPLIT, id);
+  }
+
+  queueSpaceRecordUpload(id) {
+    this.#queuePostApplyRecord(RECORD_TYPES.SPACE, id);
+  }
+
+  queueTabRecordUpload(id) {
+    this.#queuePostApplyRecord(RECORD_TYPES.TAB, id);
+  }
+
+  queueFolderRecordUpload(id) {
+    this.#queuePostApplyRecord(RECORD_TYPES.FOLDER, id);
+  }
+
+  takePostApplyItems() {
+    const items = Array.from(this.#postApplyItems.values());
+    this.#postApplyItems.clear();
+    return items;
+  }
+
   #getChangedItems() {
     return Array.from(this.#changedItems.values());
   }
@@ -88,15 +332,33 @@ class ZenSyncManager {
 
   async applyIncomingBatch(pulled, removals) {
     try {
-      this.#ignoreChanges = true;
-      this.#applyIncomingContainers(
-        pulled.containers || [],
-        removals.containers || []
+      const sidebarTypes = ["spaces", "tabs", "folders", "splits"];
+      const hasSidebarChanges = sidebarTypes.some(
+        type => pulled[type]?.length || removals[type]?.length
       );
+      const hasAnyChanges = [...sidebarTypes, "containers"].some(
+        type => pulled[type]?.length || removals[type]?.length
+      );
+      const windows = lazy.ZenWindowSync.syncedWindows;
 
-      const win = lazy.ZenWindowSync.firstSyncedWindow;
-      if (win?.gZenWorkspaces) {
-        await win.gZenWorkspaces._applySyncChanges(pulled, removals);
+      if (hasSidebarChanges && !windows.length) {
+        throw new Error(
+          "Cannot apply incoming Spaces Sync data before a browser window is ready"
+        );
+      }
+
+      if (hasAnyChanges) {
+        await lazy.ZenSessionStore.createSyncBackup();
+      }
+
+      this.#ignoreChanges = true;
+      this.#applyIncomingContainers(pulled);
+
+      for (const window of windows) {
+        await window.gZenWorkspaces._applySyncChanges(pulled, removals);
+      }
+      if (hasSidebarChanges) {
+        await lazy.ZenSessionStore.flushCurrentStateForSync();
       }
     } catch (e) {
       console.error("ZenSyncManager: Failed to apply incoming sync data:", e);
@@ -106,7 +368,114 @@ class ZenSyncManager {
     }
   }
 
-  #applyIncomingContainers(pulledContainers, removedContainers) {
+  #getIncomingContainerSyncId(container) {
+    const syncId = normalizeContainerSyncId(container?.syncId);
+    if (syncId) {
+      return syncId;
+    }
+    const legacyId = normalizeUserContextId(container?.userContextId);
+    return legacyId ? String(legacyId) : null;
+  }
+
+  #containerMetadataMatches(localContainer, incomingContainer) {
+    const identityMatches = incomingContainer.l10nId
+      ? localContainer.l10nId === incomingContainer.l10nId
+      : lazy.ContextualIdentityService.getUserContextLabel(
+          localContainer.userContextId
+        ) === incomingContainer.name;
+    return (
+      identityMatches &&
+      localContainer.icon === incomingContainer.icon &&
+      localContainer.color === incomingContainer.color
+    );
+  }
+
+  #getIncomingContainerOrdinal(container) {
+    return Number.isSafeInteger(container?.semanticOrdinal) &&
+      container.semanticOrdinal >= 0 &&
+      container.semanticOrdinal <= MAX_CONTAINER_SEMANTIC_ORDINAL
+      ? container.semanticOrdinal
+      : 0;
+  }
+
+  #getMatchingLocalContainers(localContainers, incomingContainer) {
+    return Array.from(localContainers.values())
+      .filter(candidate =>
+        this.#containerMetadataMatches(candidate, incomingContainer)
+      )
+      .sort((a, b) => a.userContextId - b.userContextId);
+  }
+
+  #createIncomingContainer(incomingContainer, localContainers) {
+    const localContainer = lazy.ContextualIdentityService.create(
+      incomingContainer.name,
+      incomingContainer.icon,
+      incomingContainer.color
+    );
+    if (localContainer) {
+      localContainers.set(localContainer.userContextId, localContainer);
+    }
+    return localContainer;
+  }
+
+  #findOrCreateEquivalentContainer(incomingContainer, localContainers) {
+    const ordinal = this.#getIncomingContainerOrdinal(incomingContainer);
+    let matches = this.#getMatchingLocalContainers(
+      localContainers,
+      incomingContainer
+    );
+    while (matches.length <= ordinal) {
+      if (!this.#createIncomingContainer(incomingContainer, localContainers)) {
+        return null;
+      }
+      matches = this.#getMatchingLocalContainers(
+        localContainers,
+        incomingContainer
+      );
+    }
+    return matches[ordinal];
+  }
+
+  #mapIncomingContainerReferences(pulled) {
+    const mapReference = (item, syncIdProperty, localIdProperty) => {
+      const syncId =
+        normalizeContainerSyncId(item[syncIdProperty]) ||
+        (normalizeUserContextId(item[localIdProperty])
+          ? String(item[localIdProperty])
+          : null);
+      if (!syncId) {
+        item[localIdProperty] = 0;
+        delete item[syncIdProperty];
+        return;
+      }
+
+      const localId = this.resolveLocalContainerId(syncId);
+      if (!localId) {
+        console.warn("ZenSyncManager: Unknown incoming container reference", {
+          syncId,
+          type: localIdProperty,
+        });
+        item[localIdProperty] = 0;
+      } else {
+        item[localIdProperty] = localId;
+      }
+      delete item[syncIdProperty];
+    };
+
+    for (const space of pulled.spaces || []) {
+      mapReference(space, "containerSyncId", "containerTabId");
+    }
+    for (const tab of pulled.tabs || []) {
+      mapReference(tab, "containerSyncId", "userContextId");
+    }
+  }
+
+  #applyIncomingContainers(pulled) {
+    const pulledContainers = [...(pulled.containers || [])].sort(
+      (a, b) =>
+        this.#getIncomingContainerOrdinal(a) -
+        this.#getIncomingContainerOrdinal(b)
+    );
     const localContainersById = new Map(
       lazy.ContextualIdentityService.getPublicIdentities().map(container => [
         container.userContextId,
@@ -115,116 +484,93 @@ class ZenSyncManager {
     );
 
     for (const container of pulledContainers) {
-      if (!container.name) {
+      const syncId = this.#getIncomingContainerSyncId(container);
+      if (!container.name || !syncId) {
         continue;
       }
 
-      const userContextId = normalizeUserContextId(container.userContextId);
-      if (userContextId === null) {
-        console.warn(
-          "ZenSyncManager: Ignoring incoming container with invalid userContextId",
-          { container }
+      let userContextId = this.resolveLocalContainerId(syncId);
+      let localContainer = localContainersById.get(userContextId);
+      if (!localContainer) {
+        localContainer = this.#findOrCreateEquivalentContainer(
+          container,
+          localContainersById
         );
-        continue;
+        userContextId = localContainer?.userContextId || null;
       }
 
-      const existsLocally = localContainersById.has(userContextId);
-
-      if (existsLocally) {
+      if (
+        localContainer &&
+        !container.l10nId &&
+        !this.#containerMetadataMatches(localContainer, container)
+      ) {
         lazy.ContextualIdentityService.update(
           userContextId,
           container.name,
           container.icon,
           container.color
         );
-        continue;
       }
 
-      const createdIdentity = lazy.ContextualIdentityService.create(
-        container.name,
-        container.icon,
-        container.color,
-        userContextId
-      );
-      if (createdIdentity) {
-        localContainersById.set(createdIdentity.userContextId, createdIdentity);
-      }
-      if (createdIdentity && createdIdentity.userContextId !== userContextId) {
-        console.warn("ZenSyncManager: Container sync created unexpected ID", {
-          requestedId: userContextId,
-          createdId: createdIdentity.userContextId,
-          name: container.name,
-        });
-      }
+      this.#associateContainerSyncId(userContextId, syncId);
     }
 
-    for (const container of removedContainers) {
-      const userContextId = normalizeUserContextId(container.userContextId);
-      if (userContextId === null) {
-        console.warn(
-          "ZenSyncManager: Ignoring container removal with invalid userContextId",
-          { container }
-        );
-        continue;
-      }
-
-      if (!localContainersById.has(userContextId)) {
-        continue;
-      }
-
-      try {
-        lazy.ContextualIdentityService.remove(userContextId);
-        localContainersById.delete(userContextId);
-      } catch {
-        // Container may already be gone locally.
-      }
-    }
+    this.#mapIncomingContainerReferences(pulled);
   }
 
-  createSyncableTabData(
-    tabData,
-    { position, trimHistoryForUnpinned = false } = {}
-  ) {
+  createSyncableTabData(tabData, { position } = {}) {
     if (
       !tabData?.zenSyncId ||
       tabData.zenIsEmpty ||
       tabData.zenLiveFolderItemId ||
-      (!tabData.pinned && lazy.gSyncOnlyPinnedTabs)
+      !tabData.pinned
     ) {
       return null;
     }
 
-    const pinned = !!tabData.pinned;
-    let entries = Array.isArray(tabData.entries) ? [...tabData.entries] : [];
-    let index = typeof tabData.index === "number" ? tabData.index : 1;
-
-    if (trimHistoryForUnpinned && !pinned && entries.length) {
-      const entryIndex = Math.max(0, index - 1);
-      const entry = entries[entryIndex] || entries[0];
-      entries = entry ? [entry] : [];
-      index = 1;
+    const entries = Array.isArray(tabData.entries) ? tabData.entries : [];
+    const entryIndex = Math.max(0, (tabData.index || 1) - 1);
+    const sourceEntry =
+      tabData._zenPinnedInitialState?.entry ||
+      entries[entryIndex] ||
+      entries[0];
+    if (!this.isSyncableTabUrl(sourceEntry?.url)) {
+      return null;
     }
+
+    const entry = { url: sourceEntry.url };
+    if (typeof sourceEntry.title === "string") {
+      entry.title = sourceEntry.title;
+    }
+
+    const initialImage =
+      tabData._zenPinnedInitialState?.image ||
+      (typeof tabData.image === "string" ? tabData.image : "");
+    const containerSyncId = this.getContainerSyncId(tabData.userContextId);
 
     const isEssential = !!tabData.zenEssential;
     const syncTabData = {
-      entries,
+      entries: [entry],
       groupId: tabData.groupId || null,
-      image: typeof tabData.image === "string" ? tabData.image : "",
-      index,
-      pinned,
-      userContextId: parseInt(tabData.userContextId, 10) || 0,
+      image: initialImage,
+      index: 1,
+      pinned: true,
       zenDefaultUserContextId: !!tabData.zenDefaultUserContextId,
       zenEssential: isEssential,
       zenHasStaticIcon: !!tabData.zenHasStaticIcon,
       zenSyncId: tabData.zenSyncId,
       zenWorkspace: isEssential ? null : tabData.zenWorkspace || null,
+      _zenPinnedInitialState: {
+        entry,
+        image: initialImage,
+      },
     };
 
     if (typeof tabData.zenStaticLabel === "string") {
       syncTabData.zenStaticLabel = tabData.zenStaticLabel;
     }
-    if (tabData._zenPinnedInitialState) {
-      syncTabData._zenPinnedInitialState = tabData._zenPinnedInitialState;
+    if (containerSyncId) {
+      syncTabData.containerSyncId = containerSyncId;
     }
     if (typeof position === "number") {
       syncTabData.position = position;
