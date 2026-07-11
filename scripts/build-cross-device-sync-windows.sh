@@ -86,7 +86,7 @@ if ! id builder >/dev/null 2>&1; then
 fi
 echo "builder ALL=(ALL) NOPASSWD:ALL" >/etc/sudoers.d/builder
 mkdir -p /work /artifacts
-chown -R builder:builder /work /artifacts
+chown builder:builder /work /artifacts
 
 sudo -H -u builder env \
   ZEN_SYNC_BRANCH="${ZEN_SYNC_BRANCH}" \
