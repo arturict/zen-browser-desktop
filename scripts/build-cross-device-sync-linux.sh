@@ -4,8 +4,9 @@ set -euxo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
 export ZEN_SYNC_BRANCH="${ZEN_SYNC_BRANCH:-codex/cross-device-sidebar-sync}"
-export ZEN_SYNC_JOBS="${ZEN_SYNC_JOBS:-8}"
+export ZEN_SYNC_JOBS="${ZEN_SYNC_JOBS:-4}"
 export ZEN_SYNC_REPOSITORY="${ZEN_SYNC_REPOSITORY:-https://github.com/arturict/zen-browser-desktop.git}"
+export ZEN_DISABLE_LTO="${ZEN_DISABLE_LTO:-1}"
 
 apt-get update
 apt-get install -y \
@@ -61,6 +62,7 @@ sudo -H -u builder env \
   ZEN_SYNC_BRANCH="${ZEN_SYNC_BRANCH}" \
   ZEN_SYNC_JOBS="${ZEN_SYNC_JOBS}" \
   ZEN_SYNC_REPOSITORY="${ZEN_SYNC_REPOSITORY}" \
+  ZEN_DISABLE_LTO="${ZEN_DISABLE_LTO}" \
   bash <<'BUILD'
 set -euxo pipefail
 

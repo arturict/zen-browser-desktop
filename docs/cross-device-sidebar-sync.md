@@ -61,7 +61,8 @@ implicit authority.
 The scripts in `scripts/build-cross-device-sync-linux.sh` and
 `scripts/build-cross-device-sync-windows.sh` clone the public branch into an
 isolated Docker container, build with bounded parallelism, and place packages
-under `/artifacts`. They do not mount a Zen profile.
+under `/artifacts`. They default to four build jobs and disable LTO so the
+Firefox link fits in a 16 GiB Docker VM. They do not mount a Zen profile.
 
 From PowerShell in the repository root, a Linux x64 preview build can be run
 with:
