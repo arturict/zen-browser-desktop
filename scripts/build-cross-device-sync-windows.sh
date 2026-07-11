@@ -148,6 +148,8 @@ fi
 
 if ! test -f engine/zen/sync/ZenSyncManager.sys.mjs; then
   SURFER_COMPAT=x86_64 npm run import -- --verbose
+else
+  SURFER_COMPAT=x86_64 npx surfer import --verbose
 fi
 if ! grep -q '^ac_add_options --disable-crashreporter$' configs/common/mozconfig; then
   printf '\nac_add_options --disable-crashreporter\n' >>configs/common/mozconfig
