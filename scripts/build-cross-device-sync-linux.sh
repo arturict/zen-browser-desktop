@@ -8,6 +8,8 @@ export ZEN_SYNC_JOBS="${ZEN_SYNC_JOBS:-4}"
 export ZEN_SYNC_REPOSITORY="${ZEN_SYNC_REPOSITORY:-https://github.com/arturict/zen-browser-desktop.git}"
 export ZEN_DISABLE_LTO="${ZEN_DISABLE_LTO:-1}"
 export MOZ_DEBUG_RUST="${MOZ_DEBUG_RUST:-1}"
+export ZEN_GA_DISABLE_PGO="${ZEN_GA_DISABLE_PGO:-1}"
+export ZEN_RELEASE="${ZEN_RELEASE:-1}"
 
 apt-get update
 apt-get install -y \
@@ -65,6 +67,8 @@ sudo -H -u builder env \
   ZEN_SYNC_REPOSITORY="${ZEN_SYNC_REPOSITORY}" \
   ZEN_DISABLE_LTO="${ZEN_DISABLE_LTO}" \
   MOZ_DEBUG_RUST="${MOZ_DEBUG_RUST}" \
+  ZEN_GA_DISABLE_PGO="${ZEN_GA_DISABLE_PGO}" \
+  ZEN_RELEASE="${ZEN_RELEASE}" \
   bash <<'BUILD'
 set -euxo pipefail
 
@@ -103,7 +107,7 @@ cd engine
 cd ..
 
 npm run build -- -j "${ZEN_SYNC_JOBS}"
-SURFER_PLATFORM=linux ZEN_RELEASE=1 npm run package
+SURFER_PLATFORM=linux npm run package
 
 cp dist/zen-*.tar.xz /artifacts/
 if test -f dist/output.mar; then
