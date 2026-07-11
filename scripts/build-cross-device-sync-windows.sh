@@ -170,6 +170,12 @@ fi
 cd ..
 
 dos2unix configs/windows/mozconfig
+cd engine
+SURFER_COMPAT=x86_64 \
+  SURFER_PLATFORM=win32 \
+  ZEN_CROSS_COMPILING=1 \
+  ./mach configure
+cd ..
 SURFER_COMPAT=x86_64 \
   SURFER_PLATFORM=win32 \
   ZEN_CROSS_COMPILING=1 \

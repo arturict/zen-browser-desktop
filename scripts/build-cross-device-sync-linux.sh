@@ -97,6 +97,7 @@ fi
 
 cd engine
 ./mach --no-interactive bootstrap --application-choice browser
+./mach configure
 cd ..
 
 npm run build -- -j "${ZEN_SYNC_JOBS}"
