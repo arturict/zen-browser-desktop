@@ -1,8 +1,9 @@
 diff --git a/config/rules.mk b/config/rules.mk
-index bfb846f142..60c7e6d052 100644
+index bfb846f142..4ae1cd9922 100644
 --- a/config/rules.mk
 +++ b/config/rules.mk
-@@ -576,6 +576,6 @@ $(COBJS):
+@@ -575,7 +575,7 @@ $(HOST_CPPOBJS):
+ $(COBJS):
  	$(REPORT_BUILD_VERBOSE)
  	$(call BUILDSTATUS,OBJECT_FILE $@)
 -	$(CC) $(OUTOPTION)$@ -c $(COMPILE_CFLAGS) $($(notdir $<)_FLAGS) $<
@@ -10,7 +11,8 @@ index bfb846f142..60c7e6d052 100644
  	$(call BUILDSTATUS,END_Object $@)
  
  $(CWASMOBJS):
-@@ -666,6 +666,6 @@ $(CPPOBJS):
+@@ -665,7 +665,7 @@ $(SOBJS):
+ $(CPPOBJS):
  	$(REPORT_BUILD_VERBOSE)
  	$(call BUILDSTATUS,OBJECT_FILE $@)
 -	$(CCC) $(OUTOPTION)$@ -c $(COMPILE_CXXFLAGS) $($(notdir $<)_FLAGS) $<
@@ -18,3 +20,12 @@ index bfb846f142..60c7e6d052 100644
  	$(call BUILDSTATUS,END_Object $@)
  
  $(CPPWASMOBJS):
+@@ -792,7 +792,7 @@ endif
+ %.res: $(or $(RCFILE),%.rc) $(MOZILLA_DIR)/config/create_res.py
+ 	$(REPORT_BUILD)
+ 	$(call BUILDSTATUS,START_Res $@)
+-	$(PYTHON3) $(MOZILLA_DIR)/config/create_res.py $(DEFINES) $(INCLUDES) -o $@ $<
++	$(PYTHON3) $(MOZILLA_DIR)/config/create_res.py $(DEFINES) $(INCLUDES) -o $@ $(call relativize,$<)
+ 	$(call BUILDSTATUS,END_Res $@)
+ 
+ $(notdir $(addsuffix .rc,$(PROGRAM) $(SHARED_LIBRARY) $(SIMPLE_PROGRAMS) module)): %.rc: $(RCINCLUDE) $(MOZILLA_DIR)/config/create_rc.py
