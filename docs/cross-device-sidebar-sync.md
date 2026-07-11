@@ -65,6 +65,8 @@ under `/artifacts`. They default to four build jobs, disable LTO, and omit the
 unrelated crash reporter so the Firefox link fits in a 16 GiB Docker VM. They
 do not mount a Zen profile. The Windows preview also disables PGO and omits
 debug symbols to keep its cross-compiled final link within that memory ceiling.
+Its Windows App SDK dependency is fetched directly from Mozilla's public
+Taskcluster toolchain artifacts.
 
 From PowerShell in the repository root, a Linux x64 preview build can be run
 with:

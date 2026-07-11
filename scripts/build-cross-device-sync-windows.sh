@@ -100,6 +100,8 @@ sudo -H -u builder env \
 set -euxo pipefail
 
 cd /work
+git config --global user.name "Zen Sync Builder"
+git config --global user.email "zen-sync-builder@localhost"
 if ! test -d source/.git; then
   git clone --depth 1 --branch "${ZEN_SYNC_BRANCH}" "${ZEN_SYNC_REPOSITORY}" source
 fi
@@ -155,6 +157,20 @@ if ! grep -q '^ac_add_options --disable-debug-symbols$' configs/common/mozconfig
 fi
 chmod -R +x "${HOME}/win-cross/vs2026" || true
 SURFER_PLATFORM=win32 npm run bootstrap
+
+windows_app_sdk_dir="${HOME}/.mozbuild/winappsdk-x86_64-pc-windows-msvc"
+if ! test -d "${windows_app_sdk_dir}"; then
+  mkdir -p "${HOME}/.mozbuild"
+  (
+    cd "${HOME}/.mozbuild"
+    /work/source/engine/mach artifact toolchain \
+      --from-build winappsdk-x86_64-pc-windows-msvc
+  )
+fi
+if ! grep -q '^export MOZ_WINDOWS_APP_SDK_DIR=' configs/common/mozconfig; then
+  printf '\nexport MOZ_WINDOWS_APP_SDK_DIR="%s"\n' \
+    "${windows_app_sdk_dir}" >>configs/common/mozconfig
+fi
 
 clang_windows_lib="$(find "${HOME}/.mozbuild/clang/lib/clang" \
   -path '*/lib/windows' -type d -print -quit)"
