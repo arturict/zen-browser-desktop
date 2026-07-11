@@ -56,6 +56,35 @@ The first merge is non-destructive. If two pre-existing layouts are genuinely
 different, both items can remain rather than one device being treated as an
 implicit authority.
 
+## Reproducible builds
+
+The scripts in `scripts/build-cross-device-sync-linux.sh` and
+`scripts/build-cross-device-sync-windows.sh` clone the public branch into an
+isolated Docker container, build with bounded parallelism, and place packages
+under `/artifacts`. They do not mount a Zen profile.
+
+From PowerShell in the repository root, a Linux x64 preview build can be run
+with:
+
+```powershell
+docker run --name zen-sync-linux-build `
+  --mount "type=bind,source=$PWD\scripts\build-cross-device-sync-linux.sh,target=/build.sh,readonly" `
+  node:22-bookworm bash /build.sh
+docker cp zen-sync-linux-build:/artifacts/. .\dist\cross-device-sync\linux
+```
+
+The Windows x64 cross-build uses Zen's Linux-to-Windows toolchain flow:
+
+```powershell
+docker run --name zen-sync-windows-build `
+  --mount "type=bind,source=$PWD\scripts\build-cross-device-sync-windows.sh,target=/build.sh,readonly" `
+  ubuntu:24.04 bash /build.sh
+docker cp zen-sync-windows-build:/artifacts/. .\dist\cross-device-sync\windows
+```
+
+These are unsigned preview builds. Test them with a disposable browser profile
+before pointing them at an existing profile.
+
 Use a separate Mozilla account when two Firefox browser profiles should stay
 isolated. Zen Spaces are synchronized; entire Firefox profile directories are
 not.
