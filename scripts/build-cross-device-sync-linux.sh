@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+
+set -euxo pipefail
+
+export DEBIAN_FRONTEND=noninteractive
+export ZEN_SYNC_BRANCH="${ZEN_SYNC_BRANCH:-codex/cross-device-sidebar-sync}"
+export ZEN_SYNC_JOBS="${ZEN_SYNC_JOBS:-8}"
+export ZEN_SYNC_REPOSITORY="${ZEN_SYNC_REPOSITORY:-https://github.com/arturict/zen-browser-desktop.git}"
+
+apt-get update
+apt-get install -y \
+  autoconf \
+  automake \
+  bison \
+  build-essential \
+  bzip2 \
+  ca-certificates \
+  cabextract \
+  clang \
+  curl \
+  dos2unix \
+  git \
+  libasound2-dev \
+  libcurl4-openssl-dev \
+  libdbus-1-dev \
+  libdbus-glib-1-dev \
+  libdrm-dev \
+  libgtk-3-dev \
+  libgtk2.0-dev \
+  libpulse-dev \
+  libpython3-dev \
+  libx11-xcb-dev \
+  libxt-dev \
+  lld \
+  llvm \
+  locales \
+  m4 \
+  nasm \
+  ninja-build \
+  python3 \
+  python3-pip \
+  python3-venv \
+  sudo \
+  unzip \
+  uuid-dev \
+  wget \
+  xz-utils \
+  xvfb \
+  yasm \
+  zip \
+  zstd
+
+if ! id builder >/dev/null 2>&1; then
+  useradd --create-home --shell /bin/bash builder
+fi
+echo "builder ALL=(ALL) NOPASSWD:ALL" >/etc/sudoers.d/builder
+mkdir -p /work /artifacts
+chown -R builder:builder /work /artifacts
+
+sudo -H -u builder env \
+  ZEN_SYNC_BRANCH="${ZEN_SYNC_BRANCH}" \
+  ZEN_SYNC_JOBS="${ZEN_SYNC_JOBS}" \
+  ZEN_SYNC_REPOSITORY="${ZEN_SYNC_REPOSITORY}" \
+  bash <<'BUILD'
+set -euxo pipefail
+
+cd /work
+git clone --depth 1 --branch "${ZEN_SYNC_BRANCH}" "${ZEN_SYNC_REPOSITORY}" source
+cd source
+
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs |
+  sh -s -- -y --default-toolchain 1.90
+source "${HOME}/.cargo/env"
+
+npm ci
+npm run surfer -- ci --brand release --display-version 1.21.6b
+npm run download
+npm run import
+
+cd engine
+./mach --no-interactive bootstrap --application-choice browser
+cd ..
+
+npm run build -- -j "${ZEN_SYNC_JOBS}"
+SURFER_PLATFORM=linux ZEN_RELEASE=1 npm run package
+
+cp dist/zen-*.tar.xz /artifacts/
+if test -f dist/output.mar; then
+  cp dist/output.mar /artifacts/
+fi
+git rev-parse HEAD >/artifacts/source-commit.txt
+BUILD
