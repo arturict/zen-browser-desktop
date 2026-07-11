@@ -65,17 +65,33 @@ sudo -H -u builder env \
 set -euxo pipefail
 
 cd /work
-git clone --depth 1 --branch "${ZEN_SYNC_BRANCH}" "${ZEN_SYNC_REPOSITORY}" source
+if ! test -d source/.git; then
+  git clone --depth 1 --branch "${ZEN_SYNC_BRANCH}" "${ZEN_SYNC_REPOSITORY}" source
+fi
 cd source
 
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs |
-  sh -s -- -y --default-toolchain 1.90
+if ! test -f "${HOME}/.cargo/env"; then
+  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs |
+    sh -s -- -y --default-toolchain 1.90
+fi
 source "${HOME}/.cargo/env"
 
-npm ci
-npm run surfer -- ci --brand release --display-version 1.21.6b
-npm run download
-npm run import
+if ! test -d engine; then
+  npm ci
+  npm run surfer -- ci --brand release --display-version 1.21.6b
+  npm run download
+fi
+
+git -C engine config user.name "Zen Sync Builder"
+git -C engine config user.email "zen-sync-builder@localhost"
+if ! git -C engine rev-parse --verify HEAD >/dev/null 2>&1; then
+  git -C engine add -A
+  git -C engine commit -m "Firefox build baseline"
+fi
+
+if ! test -f engine/zen/sync/ZenSyncManager.sys.mjs; then
+  npm run import
+fi
 
 cd engine
 ./mach --no-interactive bootstrap --application-choice browser
