@@ -49,8 +49,11 @@ so edits made while offline survive a browser restart and upload later.
 
 1. Install the same fork build on each Windows or Linux device.
 2. Sign in to the same Mozilla account in `Settings > Sync` on each device.
-3. Keep `Sync` enabled and use `Sync Now` once after the first device uploads.
-4. Open the next device and use `Sync Now` again.
+3. Open `Choose What to Sync` and enable `Spaces`. Existing Zen profiles may
+   retain an older `services.sync.engine.spaces=false` preference until this is
+   enabled explicitly.
+4. Keep `Sync` enabled and use `Sync Now` once after the first device uploads.
+5. Open the next device and use `Sync Now` again.
 
 The first merge is non-destructive. If two pre-existing layouts are genuinely
 different, both items can remain rather than one device being treated as an
