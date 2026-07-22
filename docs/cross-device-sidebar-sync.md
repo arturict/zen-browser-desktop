@@ -64,12 +64,13 @@ implicit authority.
 The scripts in `scripts/build-cross-device-sync-linux.sh` and
 `scripts/build-cross-device-sync-windows.sh` clone the public branch into an
 isolated Docker container, build with bounded parallelism, and place packages
-under `/artifacts`. They default to four build jobs, disable LTO, and omit the
-unrelated crash reporter so the Firefox link fits in a 16 GiB Docker VM. They
-do not mount a Zen profile. The Windows preview also disables PGO and omits
-debug symbols and the maintenance service to keep its cross-compiled final link
-and unsigned package within that memory ceiling. Its Windows App SDK dependency
-is fetched directly from Mozilla's public Taskcluster toolchain artifacts.
+under `/artifacts`. The Linux build defaults to two jobs and explicitly disables
+Cargo release LTO; the Windows build defaults to four jobs. Both omit the
+unrelated crash reporter so the Firefox link fits in a 16 GiB Docker VM. They do
+not mount a Zen profile. The Windows preview also disables PGO and omits debug
+symbols and the maintenance service to keep its cross-compiled final link and
+unsigned package within that memory ceiling. Its Windows App SDK dependency is
+fetched directly from Mozilla's public Taskcluster toolchain artifacts.
 
 From PowerShell in the repository root, a Linux x64 preview build can be run
 with:
