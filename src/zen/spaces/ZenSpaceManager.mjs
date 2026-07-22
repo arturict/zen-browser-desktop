@@ -610,9 +610,15 @@ class nsZenWorkspaces {
       const folder = document.getElementById(folderData.id);
       if (folder?.isZenFolder) {
         const preservedItems = [...folder.allItemsRecursive];
+        const removed = new Promise(resolve => {
+          folder.addEventListener("TabGroupRemoved", resolve, { once: true });
+        });
         await folder.unpackTabs();
         if (folder.isConnected) {
-          await folder.delete();
+          await removed;
+          // Zen removes empty folders after a close animation. Incoming Sync
+          // changes must finish with the tombstoned shell already gone.
+          folder.remove();
         }
         for (const item of preservedItems) {
           if (item?.isZenFolder && item.id) {
