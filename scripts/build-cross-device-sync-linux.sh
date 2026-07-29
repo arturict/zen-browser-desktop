@@ -100,6 +100,8 @@ fi
 if ! test -f engine/zen/sync/ZenSyncManager.sys.mjs; then
   npm run import
 fi
+python3 scripts/copy_zen_locale_overlays.py
+test -f engine/browser/locales/en-US/browser/preferences/zen-preferences.ftl
 
 if ! grep -q '^ac_add_options --disable-crashreporter$' configs/common/mozconfig; then
   printf '\nac_add_options --disable-crashreporter\n' >>configs/common/mozconfig

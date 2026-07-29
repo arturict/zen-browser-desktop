@@ -155,6 +155,8 @@ elif ! test -f "${import_stamp}" ||
   SURFER_COMPAT=x86_64 npx surfer import --verbose
 fi
 printf '%s\n' "${import_signature}" >"${import_stamp}"
+python3 scripts/copy_zen_locale_overlays.py
+test -f engine/browser/locales/en-US/browser/preferences/zen-preferences.ftl
 if ! grep -q '^ac_add_options --disable-crashreporter$' configs/common/mozconfig; then
   printf '\nac_add_options --disable-crashreporter\n' >>configs/common/mozconfig
 fi
