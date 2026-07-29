@@ -12,6 +12,7 @@ a companion service, or a second login.
 - Static tab labels and icons
 - Folders, nesting, collapsed state, and sidebar ordering
 - Split views made entirely from pinned tabs
+- Custom Zen keyboard shortcuts, identified by their stable `zen-` shortcut ID
 
 Ordinary tabs, current navigation, page history, form data, scroll position,
 cookies, logins, Firefox browser profiles, local files, and executable browser
@@ -19,6 +20,11 @@ URLs are intentionally excluded. Synced pins accept HTTP(S) and safe `about:`
 pages. A remote update never navigates a pinned tab that is already open
 locally. Its active container is also left unchanged; a new synced pin is
 created directly in the mapped local container instead.
+
+Keyboard shortcut records contain only keys, modifiers, and the enabled state.
+Executable actions and non-Zen Firefox or operating-system shortcuts never
+cross devices. Incoming Zen bindings are merged into the local shortcut file,
+so platform-specific definitions remain local.
 
 ## Safety model
 
@@ -28,7 +34,8 @@ Before applying remote data, Zen copies `zen-sessions.jsonlz4`,
 20 newest recovery snapshots are retained.
 
 The Sync engine stores one encrypted record per Space, container, pinned tab,
-folder, or split view. This avoids whole-profile last-write-wins replacement.
+folder, or split view, plus one compact record for all Zen keyboard bindings.
+This avoids whole-profile last-write-wins replacement for sidebar data.
 Firefox Sync remains near-real-time rather than guaranteed instant delivery.
 Containers use opaque Sync IDs with a profile-local mapping; device-local
 numeric container IDs are never used as cross-device identity. Matching
@@ -98,3 +105,20 @@ before pointing them at an existing profile.
 Use a separate Mozilla account when two Firefox browser profiles should stay
 isolated. Zen Spaces are synchronized; entire Firefox profile directories are
 not.
+
+## Maintaining the fork
+
+Updates should follow a tested promotion flow rather than replacing the daily
+browser automatically:
+
+1. Fetch Zen's current `dev` branch and integrate it into a maintenance branch.
+2. Run import, lint, Sync serialization tests, and Windows and Linux builds.
+3. Start each build with a disposable profile and complete a two-device Sync
+   smoke test.
+4. Preserve the last working package and profile backup before promoting the
+   tested build.
+
+Most upstream updates should integrate without changes because the extension is
+isolated in Zen's existing Spaces Sync engine. Manual work is required if Zen
+changes its workspace session schema, keyboard shortcut storage, or Firefox
+Sync engine integration.

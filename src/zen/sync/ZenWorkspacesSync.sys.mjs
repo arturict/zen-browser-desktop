@@ -21,6 +21,7 @@ import {
 } from "resource:///modules/zen/ZenSyncConstants.sys.mjs";
 
 const lazy = {};
+const SHORTCUTS_RECORD_KEY = "zen";
 
 ChromeUtils.defineESModuleGetters(lazy, {
   ZenSyncStore: "resource:///modules/zen/ZenSyncManager.sys.mjs",
@@ -172,6 +173,9 @@ class ZenWorkspacesStore extends Store {
         ids[createRecordId(RECORD_TYPES.SPLIT, splitGroup.groupId)] = true;
       }
     }
+    if ((await lazy.ZenSyncStore.getSyncedKeyboardShortcuts()).length) {
+      ids[createRecordId(RECORD_TYPES.SHORTCUTS, SHORTCUTS_RECORD_KEY)] = true;
+    }
 
     return ids;
   }
@@ -213,6 +217,11 @@ class ZenWorkspacesStore extends Store {
           );
           return splitGroup.tabs.every(tabId => pinnedTabIds.has(tabId));
         });
+      case RECORD_TYPES.SHORTCUTS:
+        return (
+          parsed.key === SHORTCUTS_RECORD_KEY &&
+          !!(await lazy.ZenSyncStore.getSyncedKeyboardShortcuts()).length
+        );
       default:
         return false;
     }
@@ -346,6 +355,20 @@ class ZenWorkspacesStore extends Store {
         };
         break;
       }
+      case RECORD_TYPES.SHORTCUTS: {
+        const shortcuts = await lazy.ZenSyncStore.getSyncedKeyboardShortcuts();
+        if (parsed.key !== SHORTCUTS_RECORD_KEY || !shortcuts.length) {
+          record.deleted = true;
+          return record;
+        }
+        record.cleartext = {
+          id,
+          type: RECORD_TYPES.SHORTCUTS,
+          schema: 1,
+          shortcuts,
+        };
+        break;
+      }
       default:
         record.deleted = true;
     }
@@ -360,6 +383,7 @@ class ZenWorkspacesStore extends Store {
       folders: [],
       containers: [],
       splits: [],
+      shortcuts: [],
     };
     const removals = {
       spaces: [],
@@ -367,6 +391,7 @@ class ZenWorkspacesStore extends Store {
       folders: [],
       containers: [],
       splits: [],
+      shortcuts: [],
     };
     for (const record of records) {
       if (record.deleted) {
@@ -432,6 +457,15 @@ class ZenWorkspacesStore extends Store {
           }
           pulled.splits.push(clean);
           break;
+        case RECORD_TYPES.SHORTCUTS:
+          if (parsedRecordId?.key !== SHORTCUTS_RECORD_KEY) {
+            break;
+          }
+          pulled.shortcuts.push({
+            schema: clean.schema,
+            shortcuts: lazy.ZenSyncStore.createSyncableShortcutData(clean),
+          });
+          break;
       }
     }
 
@@ -483,6 +517,9 @@ class ZenWorkspacesStore extends Store {
       case RECORD_TYPES.SPLIT:
         removals.splits.push({ groupId: parsed.key });
         break;
+      case RECORD_TYPES.SHORTCUTS:
+        // A remote reset must not erase device-local keyboard bindings.
+        break;
     }
   }
 
@@ -505,10 +542,18 @@ class ZenWorkspacesStore extends Store {
           folders: [],
           containers: [],
           splits: [],
+          shortcuts: [],
         };
         this._collectRemoval(record.id, removals);
         await lazy.ZenSyncStore.applyIncomingBatch(
-          { spaces: [], tabs: [], folders: [], containers: [], splits: [] },
+          {
+            spaces: [],
+            tabs: [],
+            folders: [],
+            containers: [],
+            splits: [],
+            shortcuts: [],
+          },
           removals
         );
         postApplyItems = lazy.ZenSyncStore.takePostApplyItems();
@@ -526,6 +571,7 @@ class ZenWorkspacesStore extends Store {
         folders: [],
         containers: [],
         splits: [],
+        shortcuts: [],
       };
       switch (data.type) {
         case RECORD_TYPES.SPACE:
@@ -580,6 +626,15 @@ class ZenWorkspacesStore extends Store {
           }
           pulled.splits.push(clean);
           break;
+        case RECORD_TYPES.SHORTCUTS:
+          if (parsedRecordId?.key !== SHORTCUTS_RECORD_KEY) {
+            break;
+          }
+          pulled.shortcuts.push({
+            schema: clean.schema,
+            shortcuts: lazy.ZenSyncStore.createSyncableShortcutData(clean),
+          });
+          break;
       }
       await lazy.ZenSyncStore.applyIncomingBatch(pulled, {
         spaces: [],
@@ -587,6 +642,7 @@ class ZenWorkspacesStore extends Store {
         folders: [],
         containers: [],
         splits: [],
+        shortcuts: [],
       });
       postApplyItems = lazy.ZenSyncStore.takePostApplyItems();
     } finally {
@@ -615,6 +671,10 @@ class ZenWorkspacesStore extends Store {
 class ZenWorkspacesTracker extends LegacyTracker {
   onStart() {
     Services.obs.addObserver(this, OBSERVER_TOPICS.ZEN_WORKSPACE_ITEM_CHANGED);
+    Services.obs.addObserver(
+      this,
+      OBSERVER_TOPICS.ZEN_KEYBOARD_SHORTCUTS_CHANGED
+    );
     Services.obs.addObserver(this, OBSERVER_TOPICS.CONTEXTUAL_IDENTITY_CREATED);
     Services.obs.addObserver(this, OBSERVER_TOPICS.CONTEXTUAL_IDENTITY_UPDATED);
     Services.obs.addObserver(this, OBSERVER_TOPICS.CONTEXTUAL_IDENTITY_DELETED);
@@ -624,6 +684,10 @@ class ZenWorkspacesTracker extends LegacyTracker {
     Services.obs.removeObserver(
       this,
       OBSERVER_TOPICS.ZEN_WORKSPACE_ITEM_CHANGED
+    );
+    Services.obs.removeObserver(
+      this,
+      OBSERVER_TOPICS.ZEN_KEYBOARD_SHORTCUTS_CHANGED
     );
     Services.obs.removeObserver(
       this,
@@ -656,6 +720,11 @@ class ZenWorkspacesTracker extends LegacyTracker {
       if (type && id) {
         await this.#trackChange({ type, id });
       }
+    } else if (topic === OBSERVER_TOPICS.ZEN_KEYBOARD_SHORTCUTS_CHANGED) {
+      await this.#trackChange({
+        type: RECORD_TYPES.SHORTCUTS,
+        id: SHORTCUTS_RECORD_KEY,
+      });
     } else if (topic.startsWith(CONTEXTUAL_IDENTITY_TOPIC_PREFIX)) {
       const id = item?.userContextId;
       for (const syncId of lazy.ZenSyncStore.getContainerSyncIds(id)) {

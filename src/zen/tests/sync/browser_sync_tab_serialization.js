@@ -17,6 +17,7 @@ function emptySyncItems() {
     folders: [],
     containers: [],
     splits: [],
+    shortcuts: [],
   };
 }
 
@@ -122,6 +123,57 @@ add_task(function test_rejects_non_durable_tabs() {
       `${url} is not accepted as a cross-device pin`
     );
   }
+});
+
+add_task(function test_serializes_only_zen_shortcut_bindings() {
+  const result = ZenSyncStore.createSyncableShortcutData({
+    shortcuts: [
+      {
+        id: "zen-compact-mode-toggle",
+        key: "s",
+        keycode: "",
+        modifiers: {
+          control: false,
+          alt: true,
+          shift: false,
+          meta: false,
+          accel: false,
+        },
+        action: "code:Services.appinfo.name",
+        group: "zen-compact-mode",
+        disabled: false,
+      },
+      {
+        id: "key_privatebrowsing",
+        key: "n",
+        modifiers: { accel: true, shift: true },
+      },
+    ],
+  });
+
+  Assert.deepEqual(
+    result,
+    [
+      {
+        id: "zen-compact-mode-toggle",
+        key: "s",
+        keycode: "",
+        modifiers: {
+          control: false,
+          alt: true,
+          shift: false,
+          meta: false,
+          accel: false,
+        },
+        disabled: false,
+      },
+    ],
+    "Only minimal Zen-owned bindings are serialized"
+  );
+  Assert.ok(
+    !("action" in result[0]),
+    "Executable shortcut actions never cross devices"
+  );
 });
 
 add_task(async function test_container_aliases_and_tombstones_are_safe() {

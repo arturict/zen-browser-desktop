@@ -8,6 +8,7 @@ export const RECORD_TYPES = Object.freeze({
   TAB: "tab",
   FOLDER: "folder",
   SPLIT: "split",
+  SHORTCUTS: "shortcuts",
 });
 
 export const WORKSPACES_ENGINE_NAME = "Spaces";
@@ -17,6 +18,7 @@ export const CONTAINER_SYNC_MAPPINGS_PREF = "zen.sync.container-id-mappings";
 
 export const OBSERVER_TOPICS = Object.freeze({
   ZEN_WORKSPACE_ITEM_CHANGED: "zen-workspace-item-changed",
+  ZEN_KEYBOARD_SHORTCUTS_CHANGED: "zen-keyboard-shortcuts-changed",
   CONTEXTUAL_IDENTITY_CREATED: "contextual-identity-created",
   CONTEXTUAL_IDENTITY_UPDATED: "contextual-identity-updated",
   CONTEXTUAL_IDENTITY_DELETED: "contextual-identity-deleted",
@@ -30,6 +32,7 @@ export const RECORD_ID_PREFIX_BY_TYPE = Object.freeze({
   [RECORD_TYPES.TAB]: "t",
   [RECORD_TYPES.FOLDER]: "f",
   [RECORD_TYPES.SPLIT]: "sv",
+  [RECORD_TYPES.SHORTCUTS]: "kb",
 });
 
 export const RECORD_TYPE_BY_PREFIX = Object.freeze({
@@ -38,4 +41,5 @@ export const RECORD_TYPE_BY_PREFIX = Object.freeze({
   t: RECORD_TYPES.TAB,
   f: RECORD_TYPES.FOLDER,
   sv: RECORD_TYPES.SPLIT,
+  kb: RECORD_TYPES.SHORTCUTS,
 });

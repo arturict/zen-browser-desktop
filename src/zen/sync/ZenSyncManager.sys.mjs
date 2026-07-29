@@ -8,6 +8,9 @@ import {
 
 const lazy = {};
 const MAX_CONTAINER_SEMANTIC_ORDINAL = 128;
+const SHORTCUTS_FILE_NAME = "zen-keyboard-shortcuts.json";
+const MAX_SYNCED_SHORTCUTS = 256;
+const MAX_SHORTCUT_STRING_LENGTH = 128;
 
 ChromeUtils.defineESModuleGetters(lazy, {
   ZenSessionStore: "resource:///modules/zen/ZenSessionManager.sys.mjs",
@@ -35,6 +38,13 @@ function normalizeContainerSyncId(value) {
   return normalized;
 }
 
+function normalizeShortcutString(
+  value,
+  maxLength = MAX_SHORTCUT_STRING_LENGTH
+) {
+  return typeof value === "string" && value.length <= maxLength ? value : "";
+}
+
 class ZenSyncManager {
   getSidebarData() {
     return lazy.ZenSessionStore.getSidebarData();
@@ -50,6 +60,51 @@ class ZenSyncManager {
     }
     const scheme = url.slice(0, separator).toLowerCase();
     return scheme === "http" || scheme === "https" || scheme === "about";
+  }
+
+  createSyncableShortcutData(data) {
+    if (!Array.isArray(data?.shortcuts)) {
+      return [];
+    }
+
+    const shortcuts = new Map();
+    for (const shortcut of data.shortcuts.slice(0, MAX_SYNCED_SHORTCUTS)) {
+      const id = normalizeShortcutString(shortcut?.id);
+      if (!id.startsWith("zen-")) {
+        continue;
+      }
+      const modifiers = shortcut?.modifiers || {};
+      shortcuts.set(id, {
+        id,
+        key: normalizeShortcutString(shortcut.key, 32),
+        keycode: normalizeShortcutString(shortcut.keycode, 32),
+        modifiers: {
+          control: !!modifiers.control,
+          alt: !!modifiers.alt,
+          shift: !!modifiers.shift,
+          meta: !!modifiers.meta,
+          accel: !!modifiers.accel,
+        },
+        disabled: !!shortcut.disabled,
+      });
+    }
+    return Array.from(shortcuts.values()).sort((a, b) => {
+      if (a.id === b.id) {
+        return 0;
+      }
+      return a.id < b.id ? -1 : 1;
+    });
+  }
+
+  async getSyncedKeyboardShortcuts() {
+    try {
+      const data = await IOUtils.readJSON(
+        PathUtils.join(PathUtils.profileDir, SHORTCUTS_FILE_NAME)
+      );
+      return this.createSyncableShortcutData(data);
+    } catch {
+      return [];
+    }
   }
 
   /**
@@ -336,18 +391,19 @@ class ZenSyncManager {
       const hasSidebarChanges = sidebarTypes.some(
         type => pulled[type]?.length || removals[type]?.length
       );
-      const hasAnyChanges = [...sidebarTypes, "containers"].some(
+      const hasProfileChanges = [...sidebarTypes, "containers"].some(
         type => pulled[type]?.length || removals[type]?.length
       );
+      const hasWindowChanges = hasSidebarChanges || !!pulled.shortcuts?.length;
       const windows = lazy.ZenWindowSync.syncedWindows;
 
-      if (hasSidebarChanges && !windows.length) {
+      if (hasWindowChanges && !windows.length) {
         throw new Error(
           "Cannot apply incoming Spaces Sync data before a browser window is ready"
         );
       }
 
-      if (hasAnyChanges) {
+      if (hasProfileChanges) {
         await lazy.ZenSessionStore.createSyncBackup();
       }
 
@@ -355,6 +411,13 @@ class ZenSyncManager {
       // ContextualIdentityService.remove() clears local site data. Container
       // deletion therefore remains an explicit, device-local operation.
       this.#applyIncomingContainers(pulled);
+
+      const syncedShortcuts = pulled.shortcuts?.at(-1);
+      if (syncedShortcuts?.schema === 1 && syncedShortcuts.shortcuts?.length) {
+        await windows[0].gZenKeyboardShortcutsManager.applySyncedShortcuts(
+          syncedShortcuts.shortcuts
+        );
+      }
 
       for (const window of windows) {
         await window.gZenWorkspaces._applySyncChanges(pulled, removals);

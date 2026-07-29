@@ -1503,6 +1503,65 @@ window.gZenKeyboardShortcutsManager = {
 
     await this._saveShortcuts();
     this.triggerShortcutRebuild();
+    Services.obs.notifyObservers(null, "zen-keyboard-shortcuts-changed");
+  },
+
+  async applySyncedShortcuts(shortcuts) {
+    if (!Array.isArray(shortcuts) || !shortcuts.length) {
+      return false;
+    }
+
+    const saved = await this.loader.loadObject();
+    if (!Array.isArray(saved?.shortcuts)) {
+      return false;
+    }
+
+    const incoming = new Map(
+      shortcuts
+        .filter(shortcut => shortcut?.id?.startsWith("zen-"))
+        .map(shortcut => [shortcut.id, shortcut])
+    );
+    let changed = false;
+    for (const localShortcut of saved.shortcuts) {
+      const synced = incoming.get(localShortcut.id);
+      if (!synced) {
+        continue;
+      }
+      const next = {
+        key: synced.key || "",
+        keycode: synced.keycode || "",
+        modifiers: {
+          control: !!synced.modifiers?.control,
+          alt: !!synced.modifiers?.alt,
+          shift: !!synced.modifiers?.shift,
+          meta: !!synced.modifiers?.meta,
+          accel: !!synced.modifiers?.accel,
+        },
+        disabled: !!synced.disabled,
+      };
+      if (
+        localShortcut.key !== next.key ||
+        localShortcut.keycode !== next.keycode ||
+        JSON.stringify(localShortcut.modifiers) !==
+          JSON.stringify(next.modifiers) ||
+        localShortcut.disabled !== next.disabled
+      ) {
+        Object.assign(localShortcut, next);
+        changed = true;
+      }
+    }
+
+    if (!changed) {
+      return false;
+    }
+
+    await this.loader.save(saved);
+    const loadedShortcuts = await this._loadSaved();
+    this._currentShortcutList =
+      this.versioner.fixedKeyboardShortcuts(loadedShortcuts);
+    this._applyShortcuts();
+    await this._saveShortcuts();
+    return true;
   },
 
   async getModifiableShortcuts() {
