@@ -1,8 +1,8 @@
 {
-  "name": "Zen Browser",
+  "name": "ZZen Browser",
   "vendor": "Zen OSS Team",
-  "appId": "zen",
-  "binaryName": "zen",
+  "appId": "zzen",
+  "binaryName": "zzen",
   "version": {
     "product": "firefox",
     "version": "149.0.2",
@@ -16,9 +16,9 @@
   "brands": {
     "release": {
       "backgroundColor": "#282A33",
-      "brandShorterName": "Zen",
-      "brandShortName": "Zen",
-      "brandFullName": "Zen Browser",
+      "brandShorterName": "ZZen",
+      "brandShortName": "ZZen",
+      "brandFullName": "ZZen Browser",
       "release": {
         "displayVersion": "1.19.8b",
         "github": {
@@ -36,9 +36,9 @@
     },
     "twilight": {
       "backgroundColor": "#282A33",
-      "brandShorterName": "Zen",
-      "brandShortName": "Twilight",
-      "brandFullName": "Zen Twilight",
+      "brandShorterName": "ZZen",
+      "brandShortName": "ZZen Twilight",
+      "brandFullName": "ZZen Twilight",
       "release": {
         "displayVersion": "1.20t",
         "github": {

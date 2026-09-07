@@ -14,6 +14,7 @@ export default [
   "gZenCompactModeManager",
 
   "gZenWindowSync",
+  "gZenSidebarProfileSync",
 
   "gZenUIManager",
   "gZenVerticalTabsManager",
